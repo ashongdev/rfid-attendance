@@ -4,6 +4,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <ArduinoJson.h>
 
 // ---------- Network configuration ----------
 // Wokwi's virtual WiFi: SSID "Wokwi-GUEST", no password, channel 6.
@@ -13,7 +16,6 @@ const char* WIFI_PASS    = "";
 const int   WIFI_CHANNEL = 6;
 
 // Backend endpoint that receives the scan (must be reachable from the internet in Wokwi)
-// const char* API_URL   = "https://httpbin.org/post";
 const char* API_URL   = "https://gathered-smallest-finding-cluster.trycloudflare.com/api/attendance";
 const char* API_KEY   = "CHANGE_ME";   // sent as a Bearer token
 const char* DEVICE_ID = "reader-01";   // identifies this reader/location
@@ -26,6 +28,19 @@ const uint32_t SAME_CARD_COOLDOWN_MS = 3000;
 #define SS_SPI_PIN 21  // SDA (Slave Select) pin
 
 MFRC522 mfrc522(SS_SPI_PIN, RST_PIN);  // Create MFRC522 instance
+
+// ---------- LCD (I2C) ----------
+#define LCD_SDA 25
+#define LCD_SCL 26
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // address 0x27, 16 columns, 2 rows
+
+void showMessage(const String& line1, const String& line2 = "") {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+}
 
 String lastUid = "";
 uint32_t lastScanMs = 0;
@@ -56,8 +71,10 @@ bool connectWiFi(uint32_t timeoutMs = 15000) {
 
 // ---------- HTTP ----------
 // Sends {"uid":"11223344","device_id":"reader-01"} to the backend.
-bool sendAttendance(const String& uid) {
-  if (!connectWiFi()) return false;
+// Returns the HTTP status code (or -1 if the request failed).
+// Fills 'name' with the person's name if the server sent one.
+int sendAttendance(const String& uid, String& name) {
+  if (!connectWiFi()) return -1;
 
   String url = API_URL;
   bool useTls = url.startsWith("https://");
@@ -68,7 +85,6 @@ bool sendAttendance(const String& uid) {
 
   if (useTls) {
     // TESTING ONLY: skips certificate validation.
-    // For production, use secureClient.setCACert(rootCA) with your server's root CA.
     secureClient.setInsecure();
     http.begin(secureClient, url);
   } else {
@@ -82,17 +98,22 @@ bool sendAttendance(const String& uid) {
   String body = String("{\"uid\":\"") + uid + "\",\"device_id\":\"" + DEVICE_ID + "\"}";
 
   int code = http.POST(body);
-  bool ok = (code >= 200 && code < 300);
 
   if (code > 0) {
+    String response = http.getString();
     Serial.printf("HTTP %d\n", code);
-    Serial.println(http.getString());  // server response (e.g. employee name / status)
+    Serial.println(response);
+
+    JsonDocument doc;
+    if (!deserializeJson(doc, response)) {
+      name = doc["data"]["name"] | "";
+    }
   } else {
     Serial.printf("HTTP request failed: %s\n", http.errorToString(code).c_str());
   }
 
   http.end();
-  return ok;
+  return code;
 }
 
 // ---------- Helpers ----------
@@ -110,12 +131,18 @@ String uidToString(const MFRC522::Uid& uid) {
 void setup() {
   Serial.begin(115200);   // Initialize serial communications with the PC
   while (!Serial);       // Wait for serial port to open (needed for native USB boards)
+  
+  Wire.begin(LCD_SDA, LCD_SCL);
+  lcd.init();
+  lcd.backlight();
+  showMessage("Starting...");
 
   SPI.begin();           // Init SPI bus
   mfrc522.PCD_Init();    // Init MFRC522 card
   mfrc522.PCD_DumpVersionToSerial();
 
   connectWiFi();
+  showMessage("Scan your card");
 
   Serial.println(F("Approximate your card to the reader..."));
   Serial.println(F("-------------------------------------"));
@@ -147,12 +174,24 @@ void loop() {
   Serial.print(F("Card UID: "));
   Serial.println(uid);
 
+  showMessage("Card scanned", uid);
+
   // Send to backend
-  if (sendAttendance(uid)) {
-    Serial.println(F("Attendance recorded"));
+  String name;
+  int code = sendAttendance(uid, name);
+
+  if (code >= 200 && code < 300) {
+    Serial.println("Attendance recorded: " + name);
+    showMessage("Welcome,", name.substring(0, 16));
+  } else if (code == 404) {
+    Serial.println(F("Unknown card"));
+    showMessage("Unknown card", uid);
   } else {
     Serial.println(F("Failed to record attendance"));
+    showMessage("Failed", "Try again");
   }
+  delay(2000);
+  showMessage("Scan your card");
 
   // Halt PICC to stop reading it continuously
   mfrc522.PICC_HaltA();

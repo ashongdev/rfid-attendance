@@ -5,6 +5,10 @@ from dreema.responses import SysCodes, response
 from models.usersModel import UsersModel
 
 API_KEY = "CHANGE_ME"  # must match API_KEY in main.cpp
+USERS = {
+    "01020304": "Ama Mensah",
+    "11223344": "Kofi Boateng",
+}
 
 
 class UsersController:
@@ -26,9 +30,14 @@ class UsersController:
         device_id = data.get("device_id", "unknown")
         now = datetime.now(timezone.utc).isoformat()
 
-        # Save one line per scan: time,device,uid
-        with open("attendance.csv", "a") as f:
-            f.write(f"{now},{device_id},{uid}\n")
+        name = USERS.get(uid)
+        if name is None:
+            print(f"{now}  {device_id}  {uid}  UNKNOWN CARD")
+            return response(data={"status": "unknown", "uid": uid})
 
-        print(f"{now}  {device_id}  {uid}")
-        return response(data={"status": "ok", "uid": uid, "time": now})
+        # Save one line per scan: time,device,uid,name
+        with open("attendance.csv", "a") as f:
+            f.write(f"{now},{device_id},{uid},{name}\n")
+
+        print(f"{now}  {device_id}  {uid}  {name}")
+        return response(data={"status": "ok", "uid": uid, "name": name, "time": now})
