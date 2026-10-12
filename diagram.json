@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "author": "Anonymous maker",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": -19.2, "left": 139.24, "attrs": {} },
+    { "type": "board-mfrc522", "id": "rfid1", "top": 35.75, "left": -150.16, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "rfid1:SCK", "esp:18", "green", [ "h-76.8", "v-163.2", "h547.2", "v-28.8" ] ],
+    [ "rfid1:MOSI", "esp:23", "green", [ "h-57.6", "v-153.6", "h508.8", "v-9.6" ] ],
+    [ "rfid1:MISO", "esp:19", "green", [ "h-48", "v-144", "h480", "v115.2" ] ],
+    [ "rfid1:GND", "esp:GND.1", "black", [ "h-28.8", "v76.8", "h297.6", "v-67.2", "h-9.6" ] ],
+    [ "rfid1:RST", "esp:22", "green", [ "h-19.2", "v0", "h0", "v105.6", "h432", "v-211.2" ] ],
+    [ "rfid1:3.3V", "esp:3V3", "green", [ "h-9.6", "v67.2", "h268.8", "v9.6" ] ],
+    [ "rfid1:SDA", "esp:21", "green", [ "h-19.2", "v-105.6", "h422.4", "v86.4", "h-9.6" ] ]
+  ],
+  "dependencies": {}
+}
