@@ -1,3 +1,4 @@
+<img width="883" height="496" alt="image" src="https://github.com/user-attachments/assets/c98be955-f0ce-4c7e-b32f-189e6555ddb0" />
 # RFID Attendance System
 
 An attendance system built around an ESP32 and an MFRC522 RFID reader. When someone taps a card, the device sends the card's UID to a backend API, the backend looks up the person and logs the attendance, and the ESP32 shows the result on an I2C LCD.
