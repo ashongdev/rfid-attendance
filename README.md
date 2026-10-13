@@ -16,8 +16,10 @@ This repository contains:
 
 - RFID card scanning with the MFRC522 module
 - Name lookup on the server, shown on the LCD (`Welcome, <name>`)
+- **Taps are never missed:** card reading runs in its own task, so a tap is registered instantly (and the card can be pulled away) even while another scan is being sent
 - **Offline-tolerant scan queue:** up to 20 scans wait on the device and are sent oldest-first
 - **Automatic retries** with growing delays (1 s up to 30 s) until the server confirms each scan
+- **Fast sends:** the HTTPS connection is kept open between scans, so only the first scan pays for the TLS handshake
 - **Duplicate protection:** every tap carries a unique `scan_id`, so a retry never creates a second record
 - **Tap timestamps:** each scan carries the time of the tap (via NTP), not the time it finally reached the server
 - Same-card cooldown (3 s) to avoid accidental double taps
@@ -91,13 +93,22 @@ lib_deps =
 
 ### How it works
 
+The firmware runs two tasks, so reading cards and talking to the server never get in each other's way:
+
+- **Reader task:** polls the RFID reader about 30 times a second, puts each tap in the queue, and keeps the LCD up to date. It never touches the network.
+- **`loop()`:** takes queued scans one at a time and sends them to the API over a kept-open HTTPS connection, handling retries and showing the result.
+
+The two share a thread-safe queue, and the LCD is protected by a lock so both can write to it safely.
+
 1. Starts the RFID reader and LCD, connects to WiFi, and syncs the clock over NTP.
-2. When a card is tapped, the firmware immediately adds a scan (UID, unique `scan_id`, tap time) to a queue and shows `Saved`. This never waits on the network.
-3. A background task sends the oldest queued scan to the API. The scan is removed from the queue **only after the server confirms it**.
+2. When a card is tapped, the reader task immediately adds a scan (UID, unique `scan_id`, tap time) to the queue and shows `Saved`. This never waits on the network, and it works even while another scan is mid-send.
+3. `loop()` sends the oldest queued scan to the API, reusing the open HTTPS connection when it can. The scan is removed from the queue **only after the server confirms it**.
 4. If the network or server fails (or returns a 5xx error), the scan stays in the queue and is retried with a growing delay.
 5. If the server rejects a scan with a client error (for example a wrong API key), the scan is dropped so it can't block the queue, and the LCD shows `Rejected`.
 
 > The queue is held in memory. If the ESP32 loses power or resets, scans still waiting are lost.
+
+> Names are looked up by the server, so while it is unreachable the LCD can only show `Saved` and `Pending: N`. The names appear as the queued scans are delivered.
 
 ### LCD messages
 
@@ -126,6 +137,18 @@ const char* DEVICE_ID = "reader-01";        // unique per reader/location
 ```
 
 Change `API_KEY` to a real secret before using this with anyone's data, and keep real credentials out of version control.
+
+### Tuning
+
+These constants are also near the top of `src/main.cpp`:
+
+| Constant | Default | What it controls |
+|---|---|---|
+| `HTTP_TIMEOUT_MS` | 5000 | Longest wait for the server's reply |
+| `CONNECT_TIMEOUT_MS` | 2000 | Longest wait to open a connection. This also caps how long one failed attempt can take when the server is unreachable |
+| `SAME_CARD_COOLDOWN_MS` | 3000 | A card tapped again within this time is ignored |
+| `MESSAGE_SHOW_MS` | 2000 | How long a result stays on the LCD before the idle screen returns |
+| `QUEUE_MAX` | 20 | How many scans can wait while offline; new taps are refused when full |
 
 ## Backend
 
@@ -266,6 +289,10 @@ On real hardware you don't need a tunnel: point `API_URL` at your server's local
 | LCD shows `Welcome,` with no name | The firmware reads the name from `data.name`; check the server's response shape |
 | `Pending: N` never goes down | Server or tunnel unreachable, or the tunnel address changed. Update `API_URL` and rebuild |
 | `Rejected` | The server returned a 4xx, usually `API_KEY` not matching |
+| First scan is slower than later ones | Normal: the first send sets up the secure connection and later ones reuse it. The terminal prints `Send took ... ms` for each send, so you can compare |
+| Every send takes the same long time | The connection isn't being reused. Check the `Send took` lines and make sure the server or tunnel allows keep-alive |
+| `Connection dropped, retrying with a fresh one` | The server closed the idle connection. The firmware retries once on its own, so this is harmless unless it repeats on every scan |
+| Taps missed or nothing happens when a card is pulled away quickly | Check that the reader task is running (you should see `Queued scan` in the terminal for every tap). If not, the reader wiring or `SS_SPI_PIN` is the usual cause |
 | `HTTP 307` | The URL uses `http://` but the server redirects to `https://`. Use the `https://` address |
 | SSL error `-80` | The secure connection to that host is being cut off. Try another tunnel or network |
 | Browser can't open the tunnel address | DNS problem on your network. Try `ipconfig /flushdns`, a different DNS (`1.1.1.1`), or another network |
