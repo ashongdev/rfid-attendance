@@ -17,7 +17,7 @@ const char* WIFI_PASS    = "";
 const int   WIFI_CHANNEL = 6;
 
 // Backend endpoint that receives the scan (must be reachable from the internet in Wokwi)
-const char* API_URL   = "https://gathered-smallest-finding-cluster.trycloudflare.com/api/attendance";
+const char* API_URL   = "https://milton-shall-applications-bachelor.trycloudflare.com/api/attendance";
 const char* API_KEY   = "CHANGE_ME";   // sent as a Bearer token
 const char* DEVICE_ID = "reader-01";   // identifies this reader/location
 
