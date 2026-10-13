@@ -1,30 +1,41 @@
-import controllers.adminController as Admin
-import controllers.scanController as Scan
+"""
+Dreema Application Entry Routes
+This file defines the root routing table for the application.
+"""
 
+import controllers.scanController as Scan
+from controllers.adminController import AdminController
+from controllers.authController import AuthController
+from controllers.scanController import ScanController
+from dreema.routing import route
+
+# defining all routes coming from the controllers
 routes = [
+    # creating single routes
+    route.post("/api/attendance", ScanController.scan),
     route(path="/api/attendance", methods=["POST"], handler=Scan.ScanController.scan),
     route(
-        path="/api/people", methods=["POST"], handler=Admin.AdminController.createPerson
-    ),
-    route(
-        path="/api/people", methods=["GET"], handler=Admin.AdminController.listPeople
-    ),
-    route(
-        path="/api/devices", methods=["GET"], handler=Admin.AdminController.listDevices
-    ),
-    route(
-        path="/api/assignments",
+        path="/api/people/create",
         methods=["POST"],
-        handler=Admin.AdminController.startAssignment,
+        handler=AdminController.createPerson,
+    ),
+    route(path="/api/people", methods=["GET"], handler=AdminController.listPeople),
+    route(path="/api/devices", methods=["GET"], handler=AdminController.listDevices),
+    route(
+        path="/api/assignments/start",
+        methods=["POST"],
+        handler=AdminController.startAssignment,
     ),
     route(
         path="/api/assignments",
         methods=["GET"],
-        handler=Admin.AdminController.getAssignment,
+        handler=AdminController.getAssignment,
     ),
     route(
         path="/api/assignments/cancel",
         methods=["POST"],
-        handler=Admin.AdminController.cancelAssignment,
+        handler=AdminController.cancelAssignment,
     ),
+    route(path="/api/auth/login", methods=["POST"], handler=AuthController.login),
+    route(path="/api/auth/me", methods=["GET"], handler=AuthController.me),
 ]

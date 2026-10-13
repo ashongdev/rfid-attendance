@@ -1,59 +1,43 @@
-from datetime import datetime, timezone
-
+import scan_service as svc
+from api_helpers import check_bearer, get, read_json, run, server_error, service_error
 from dreema.requests import Request
-from dreema.responses import response
-
-API_KEY = "CHANGE_ME"  # must match API_KEY in main.cpp
-USERS = {
-    "01020304": "Ama Mensah",
-    "11223344": "Kofi Boateng",
-}
-SEEN_SCANS = {}  # scan_id -> name, remembers scans already saved
+from dreema.responses import SysCodes, response
 
 
 class ScanController:
-    @staticmethod
     async def scan(request: Request):
-        # Check the key the ESP32 sends
-        if request.headers().get("authorization") != f"Bearer {API_KEY}":
-            return response(message="unauthorized"), 401
+        """POST /api/attendance  (called by the ESP32 readers)
 
-        data = await request.body()
-        if not data or "uid" not in data:
-            return response(message="bad request"), 400
+        Body: {"uid": "01020304", "device_id": "reader-01",
+               "scan_id": "reader-01-...", "scanned_at": 1791848101}
+        Auth: Authorization: Bearer <DEVICE_API_KEY from .env>
 
-        uid = data.get("uid")
-        device_id = data.get("device_id", "unknown")
-        now = datetime.now(timezone.utc).isoformat()
+        Always answers 200 with {"data": {"status": ...}} for a scan the server understood,
+        so the reader treats it as delivered. Problems with the request itself are 4xx
+        (the reader drops those), and server faults are 5xx (the reader retries later).
+        """
+        denied = check_bearer(request, svc.setting("DEVICE_API_KEY", "CHANGE_ME"))
+        if denied:
+            return denied
 
-        scan_id = data.get("scan_id")
-        scanned_at = data.get("scanned_at", 0)
+        data = await read_json(request)
 
-        # Already saved this exact scan? (the ESP32 retried) -> don't save it twice
-        if scan_id and scan_id in SEEN_SCANS:
-            return response(
-                data={"status": "duplicate", "uid": uid, "name": SEEN_SCANS[scan_id]}
+        try:
+            result = await run(
+                svc.process_scan,
+                get(data, "uid"),
+                get(data, "device_id"),
+                scan_id=get(data, "scan_id"),
+                scanned_at=get(data, "scanned_at", 0),
             )
+        except svc.ServiceError as e:
+            return service_error(e)
+        except Exception:
+            return server_error()
 
-        name = USERS.get(uid)
-        if name is None:
-            print(f"{now}  {device_id}  {uid}  UNKNOWN CARD")
-            return response(data={"status": "unknown", "uid": uid})
-
-        # Use the time the card was tapped, if the device knew it
-        if scanned_at:
-            scan_time = datetime.fromtimestamp(scanned_at, timezone.utc).isoformat()
-        else:
-            scan_time = now
-
-        # Save one line per scan: time,device,uid,name,scan_id
-        with open("attendance.csv", "a") as f:
-            f.write(f"{scan_time},{device_id},{uid},{name},{scan_id}\n")
-
-        if scan_id:
-            SEEN_SCANS[scan_id] = name
-
-        print(f"{scan_time}  {device_id}  {uid}  {name}")
         return response(
-            data={"status": "ok", "uid": uid, "name": name, "time": scan_time}
+            data=result,
+            message="Operation completed",
+            status=SysCodes.READ_SUCCESS,
+            statuscode=200,
         )

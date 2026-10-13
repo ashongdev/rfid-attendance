@@ -17,7 +17,7 @@ const char* WIFI_PASS    = "";
 const int   WIFI_CHANNEL = 6;
 
 // Backend endpoint that receives the scan (must be reachable from the internet in Wokwi)
-const char* API_URL   = "https://milton-shall-applications-bachelor.trycloudflare.com/api/attendance";
+const char* API_URL   = "https://appreciation-governmental-powers-introduce.trycloudflare.com/api/attendance";
 const char* API_KEY   = "CHANGE_ME";   // sent as a Bearer token
 const char* DEVICE_ID = "reader-01";   // identifies this reader/location
 
@@ -132,7 +132,7 @@ uint32_t nowEpoch() {
 // Sends one scan to the backend.
 // Returns the HTTP status code (or -1 if the request failed).
 // Fills 'name' with the person's name if the server sent one.
-int sendAttendance(const Scan& s, String& name) {
+int sendAttendance(const Scan& s, String& name, String& status) {
   if (!connectWiFi(4000)) return -1;  // short wait so retries stay quick
 
   uint32_t t0 = millis();
@@ -176,6 +176,7 @@ int sendAttendance(const Scan& s, String& name) {
       JsonDocument doc;
       if (!deserializeJson(doc, response)) {
         name = doc["data"]["name"] | "";
+        status = doc["data"]["status"] | "";
       }
       http.end();
       break;
@@ -293,8 +294,8 @@ void loop() {
     return;
   }
 
-  String name;
-  int code = sendAttendance(s, name);
+  String name, status;
+  int code = sendAttendance(s, name, status);
 
   bool success  = (code >= 200 && code < 300);
   bool rejected = (code >= 400 && code < 500 && code != 408 && code != 429);
@@ -308,6 +309,15 @@ void loop() {
     if (rejected) {
       Serial.println(F("Server rejected the scan"));
       showTimed("Rejected", "Contact admin");
+    } else if (status == "assigned") {
+      Serial.println("Card assigned to: " + name);
+      showTimed("Card assigned", name.substring(0, 16));
+    } else if (status == "already_assigned") {
+      Serial.println(F("Card already belongs to someone else"));
+      showTimed("Card in use", "Try another");
+    } else if (status == "disabled") {
+      Serial.println(F("Card is disabled"));
+      showTimed("Card disabled", "See admin");
     } else if (name.length() > 0) {
       Serial.println("Attendance recorded: " + name);
       showTimed("Welcome,", name.substring(0, 16));
